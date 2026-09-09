@@ -109,3 +109,152 @@ $ make test-e2e-bundle
 
 
 All apps of circuits are uploaded into aws s3 storage, and can be download via following urls:
+
+
+`<s3 base url>/scroll-zkvm/releases/<fork name>/<chunk|batch|bundle>/<vk>`
+
++ Current the url for s3 storage is `https://circuit-release.s3.us-west-2.amazonaws.com`
++ The fork name can be read via [release-fork](./release-fork) file
++ The circuit app has to be accessed by specifying its proof type (chunk/batch/bundle) and the vk of the circuit.
+
+## Usage of Prover API
+
+### Dependency
+
+Add the following dependency in your `Cargo.toml`:
+
+```toml
+[dependencies]
+scroll-zkvm-prover = { git = "https://github.com/scroll-tech/zkvm-prover", branch = "master" }
+```
+
+### To prove a universal task with STARK proofs
+
+Prover capable of generating STARK proofs for a Scroll [universal task](TODO:doc):
+
+```rust
+use std::path::Path;
+
+use scroll_zkvm_prover::{
+    Prover,
+    task::ProvingTask,
+};
+use scroll_zkvm_types::{
+    public_inputs::ForkName,
+    chunk::ChunkWitness,
+    task::ProvingTask as UniversalProvingTask,
+};
+
+// Paths to the application exe and application config.
+let path_exe = Path::new("./path/to/app.vmexe");
+let path_app_config = Path::new("./path/to/openvm.toml");
+
+// Optional directory to cache generated proofs on disk.
+let cache_dir = Path::new("./path/to/cache/proofs");
+
+let config = scroll_zkvm_prover::ProverConfig {
+    path_app_exe,
+    path_app_config,
+    dir_cache: Some(cache_dir),
+    ..Default::default()
+};
+// Setup prover.
+let prover = Prover::setup(config, false, None)?;
+
+let vk = prover.get_app_vk();
+let task : UniversalProvingTask = /* a universal task, commonly generated and assigned by coordinator */
+
+// Generate a proof.
+let proof = prover.gen_proof_universal(&task, false)?;
+
+// Verify proof.
+let verifier = prover.dump_universal_verifier(None::<String>);
+assert!(verifier.verify_proof(proof.as_root_proof().expect("should be root proof"), &vk)?);
+```
+
+### To prove a universal task with SNARK proofs
+
+Prover capable of generating SNARK proofs aggregating the root proof for a Scroll [universal task](TODO:doc):
+
+```rust
+use std::path::Path;
+
+use scroll_zkvm_prover::{
+    Prover,
+    task::ProvingTask,
+};
+use scroll_zkvm_types::{
+    public_inputs::ForkName,
+    chunk::ChunkWitness,
+    task::ProvingTask as UniversalProvingTask,
+};
+
+// Paths to the application exe and application config.
+let path_exe = Path::new("./path/to/app.vmexe");
+let path_app_config = Path::new("./path/to/openvm.toml");
+
+// Optional directory to cache generated proofs on disk.
+let cache_dir = Path::new("./path/to/cache/proofs");
+
+let config = scroll_zkvm_prover::ProverConfig {
+    path_app_exe,
+    path_app_config,
+    dir_cache: Some(cache_dir),
+    ..Default::default()
+};
+// Setup prover capable to generate SNARK proof.
+let prover = Prover::setup(config, true, None)?;
+
+let vk = prover.get_app_vk();
+let task : UniversalProvingTask = /* a universal task, commonly generated and assigned by coordinator */
+
+// Generate a SNARK proof.
+let proof = prover.gen_proof_universal(&task, true)?;
+
+// Verify proof.
+let verifier = prover.dump_universal_verifier(None::<String>);
+assert!(verifier.verify_proof_evm(&proof.clone().into_evm_proof().expect("should be evm proof").into(), &vk)?);
+```
+
+### Form a universal task for a chunk from block witnesses
+
+A universal task for proving a chunk can be easily generated from block witnesses:
+
+```rust
+use std::path::Path;
+
+use scroll_zkvm_prover::{
+    Prover,
+    task::ProvingTask,
+};
+use scroll_zkvm_types::{
+    public_inputs::ForkName,
+    chunk::ChunkWitness,
+    task::ProvingTask as UniversalProvingTask,
+};
+
+let prover = /* init a prover and load the chunk circuit */
+let vk = prover.get_app_vk();
+
+// Proving task of a chunk with 3 blocks.
+let block_witnesses = vec![
+    sbv::primitives::types::BlockWitness { /* */ },
+    sbv::primitives::types::BlockWitness { /* */ },
+    sbv::primitives::types::BlockWitness { /* */ },
+];
+let wit = ChunkWitness::new(
+    &block_witnesses,
+    template_wit.prev_msg_queue_hash,
+    template_wit.fork_name,
+);
+
+let task = UniversalProvingTask{
+    serialized_witness: vec![wit.rkyv_serialize(None)],
+    aggregated_proofs: Vec::new(),
+    fork_name: "feynman".to_string(),
+    vk: vk.clone(),
+    identifier: Default::default(),
+};
+
+```
+
